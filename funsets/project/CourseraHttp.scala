@@ -7,6 +7,8 @@ import java.io.{IOException, File, FileInputStream}
 import scalaz.Scalaz.{mkIdentity, ValidationNEL}
 
 import Settings._
+import sbt._
+
 
 case class JsonSubmission(api_state: String, user_info: JsValue, submission_metadata: JsValue, solutions: JsValue, submission_encoding: String, submission: String)
 //case class JsonQueueResult(submission: JsonSubmission)
@@ -14,16 +16,63 @@ object SubmitJsonProtocol extends DefaultJsonProtocol {
   implicit val jsonSubmissionFormat = jsonFormat6(JsonSubmission)
 //  implicit val jsonQueueResultFormat = jsonFormat1(JsonQueueResult)
 }
+    
+// forwarder to circumvent deprecation
+object DeprectaionForwarder { 
+
+  @deprecated("", "") class FwdClass { def insecureClientForwarder(credentials: dispatch.Http.CurrentCredentials) = insecureClient(credentials) }; object FwdClass extends FwdClass 
+  import org.apache.http.impl.client.DefaultHttpClient
+  import org.apache.http.conn.ssl._
+  import org.apache.http.conn.scheme._
+  import javax.net.ssl.{X509TrustManager, SSLContext}
+  import java.security.cert.X509Certificate
+  import org.apache.http.impl.conn.SingleClientConnManager
+  import java.security.SecureRandom
+
+  class NaiveTrustManager extends X509TrustManager {
+
+    override def checkClientTrusted(arg0: Array[X509Certificate], arg1: String) {        
+    }
+    override def checkServerTrusted(arg0: Array[X509Certificate], arg1: String) {      
+    }
+    override def getAcceptedIssuers(): Array[X509Certificate] = {      
+      return null;
+    }
+  }
+
+  @deprecated("", "") def insecureClient(credentials: dispatch.Http.CurrentCredentials) = {    
+    val sslContext = SSLContext.getInstance("TLS");
+    sslContext.init(null, Array(new NaiveTrustManager()), new SecureRandom());
+    val sf = new SSLSocketFactory(sslContext, SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER);
+
+    val httpsScheme = new Scheme("https", sf, 443);
+    val schemeRegistry = new SchemeRegistry();
+    schemeRegistry.register(httpsScheme);
+
+    val dispatch_client = new dispatch.ConfiguredHttpClient(credentials)
+    val params = dispatch_client.createHttpParams
+    val cm = new SingleClientConnManager(params, schemeRegistry);
+
+    val client = new DefaultHttpClient(cm, params)      
+    client
+  }
+  
+}
 
 object CourseraHttp {
   private lazy val http = new Http with NoLogging
+  private lazy val insecureHttp = new Http with NoLogging { 
+      override def make_client = DeprectaionForwarder.FwdClass.insecureClientForwarder(credentials)
+  }
+   
 
   private def executeRequest[T](req: Request)(parse: String => ValidationNEL[String, T]): ValidationNEL[String, T] = {
     try {
-      http(req >- { res =>
-        parse(res)
-      })
-    } catch {
+      try http(req >- { res => parse(res) }) catch {
+        case ex: javax.net.ssl.SSLPeerUnverifiedException =>
+          insecureHttp(req >- { res => parse(res) }) // try the insecure version
+      }
+    } catch {      
       case ex: IOException =>
         ("Connection failed\n"+ ex.toString()).failNel
       case StatusCode(code, message) =>
@@ -172,12 +221,15 @@ object CourseraHttp {
    * SUBMITTING GRADES
    */
 
-  def submitGrade(feedback: String, score: String, apiState: String, apiKey: String, gradeProject: ProjectDetails): ValidationNEL[String, Unit] = {
+  def submitGrade(feedback: String, score: String, apiState: String, apiKey: String, gradeProject: ProjectDetails, logger: Option[Logger]): ValidationNEL[String, Unit] = {
     import DefaultJsonProtocol._
     val baseReq = url(Settings.uploadFeedbackUrl(gradeProject.courseId))
-    val withArgs = baseReq << Map("api_state" -> apiState, "score" -> score, "feedback" -> feedback) <:< Map("X-api-key" -> apiKey)
+    val reqArgs = Map("api_state" -> apiState, "score" -> score, "feedback" -> feedback)
+    val withArgs = baseReq << reqArgs <:< Map("X-api-key" -> apiKey)
+    for (l <- logger) l.debug("Submit grade arguments: \n X-api-key: " + apiKey + " " + reqArgs + " ")
     executeRequest(withArgs) { res =>
       try {
+        for (l <- logger) l.debug("Response:" + res)
         val js = JsonParser(res)
         val status = (js \ "status").convertTo[String]
         if (status == "202")

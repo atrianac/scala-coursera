@@ -1,11 +1,8 @@
-// needed for custom scalastyle package
-resolvers += "namin.github.com/maven-repository" at "http://namin.github.com/maven-repository/"
-
-resolvers += "Spray Repository" at "http://repo.spray.cc/"
+resolvers += "Spray Repository" at "http://repo.spray.io"
 
 libraryDependencies += "net.databinder" %% "dispatch-http" % "0.8.8"
 
-  libraryDependencies += "org.scalastyle" % "scalastyle_2.9.1" % "0.1.3-SNAPSHOT"
+libraryDependencies += "org.scalastyle" %% "scalastyle" % "0.3.2"
 
 libraryDependencies += "cc.spray" %%  "spray-json" % "1.1.1"
 

@@ -12,10 +12,10 @@ object GradingFeedback {
   /**
    * Converts the string to HTML - coursera displays the feedback in an html page.
    */
-  def feedbackString(html: Boolean = true) = {
+  def feedbackString(uuid: String, html: Boolean = true) = {
     val total = totalGradeMessage(totalScore) + "\n\n"
     // trim removes the newlines at the end
-    val s = (total + feedbackSummary.mkString + feedbackDetails.mkString).trim
+    val s = (total + feedbackSummary.mkString + feedbackDetails.mkString + uniqueGradeId(uuid) + "\n\n").trim
     if (html)
       "<pre>"+ StringEscapeUtils.escapeHtml4(s) +"</pre>"
     else
@@ -196,11 +196,10 @@ object GradingFeedback {
       |score of %.2f.""".stripMargin.format(vMaxTestScore)
 
   private val testExecutionFailedMessage =
-    """An error occured while running our tests on your submission. This is not expected to
-      |happen, it means there is a bug in our testing environment.
+    """An error occurred while running our tests on your submission.
       |
       |In order for us to help you, please contact one of the teaching assistants and send
-      |them the entire feedback message that you recieved.""".stripMargin
+      |them the entire feedback message that you received.""".stripMargin
 
   // def so that we read the right value of vMaxStyleScore (initialize modifies it)
   private def perfectStyleMessage =
@@ -215,4 +214,7 @@ object GradingFeedback {
 
   private def totalGradeMessage(score: Double) =
     """Your overall score for this assignment is %.2f out of %.2f""".format(score, vMaxTestScore + vMaxStyleScore)
+
+  // This is added because the feedback is getting overwritten by someone.
+  private def uniqueGradeId(s: String) = """Unique identifier of this grade is %s. This identifier will uniquely identify your assignment throughout the grading system.""".format(s)
 }
